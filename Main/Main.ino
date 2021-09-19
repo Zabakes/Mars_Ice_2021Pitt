@@ -11,7 +11,7 @@
 #include<HX711.h> //Load cell library
 
 //SERIAL COMMUNICATION VARIABLES
-int sref=1;
+int sref=-1;
 
 #define dataPin 21
 #define clockPin 53
@@ -74,6 +74,8 @@ const static void (*funcMap[])() = {  &drillDown,   //Command 0 Turns Drill on a
 
 void setup() {
 
+    Serial.begin(115200);
+
     //initialize stepper motors
     pinMode(stepPin,OUTPUT);
     pinMode(dirPin,OUTPUT);
@@ -100,8 +102,6 @@ void setup() {
     forceSensor.set_scale(420.0983); // loadcell factor 5 KG
     forceSensor.tare(); //zeroes load cell
 
-    Serial.begin(9600);
-
 }//end setup
 
 void loop()
@@ -116,9 +116,10 @@ void updateState(){
 
     if(!Serial){
       stopAll();//If the computer is disconeted STOP EVERYTHING
+      digitalWrite(LED_BUILTIN, HIGH);
     }else{
       if(Serial.available()){//If a new state is being commanded from matlab
-
+        digitalWrite(LED_BUILTIN, LOW);
         int srefTemp = Serial.parseInt();
 
         if(sref != srefTemp){//If the state is new
@@ -138,7 +139,7 @@ void updateState(){
         }
     }
 
-    if(sref < 12 && sref > 0){
+    if(sref <= 12 && sref >= 0){
       funcMap[sref](); //Call the function according to the state we're in based on the map at the top of the code
     }else{
       stopAll();//If the state is invalid turn everything off This shouldn't be nessary it should happen on the state change but it's here for redundancy
@@ -146,6 +147,9 @@ void updateState(){
 }
 
 void drillDown(){
+  if(distance%200 >= 150 && forceSensor.is_ready()){
+    printDigitalCore();
+  }
   drillOn();
   goDown();
 }
@@ -195,9 +199,6 @@ void goDown(void){
   //continue until signal change or limit switch
   if(!digitalRead(botLimit)){
     stepDrillDown();
-    if(int(distance)%200 >= 275 && forceSensor.is_ready()){
-      printDigitalCore();
-    }
   }else{
     //TODO set dist to lower val
   }

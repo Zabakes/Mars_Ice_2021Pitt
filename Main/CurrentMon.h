@@ -6,8 +6,9 @@ class CurrentMon{
         struct readingDat
         {
             int analogPin;
-            int i;
+            int * i;
             uint16_t * arr;
+            int sampleNum;
         };
 
         int analogPin;
@@ -57,38 +58,31 @@ class CurrentMon{
         }
 
         bool static getReading(readingDat *args){
-            args->arr[args->i] = analogRead(args->analogPin);
-            return false;
-        }
-
-        void getReadingIn(int time, int i){
-            int t = 0;
-
-            readingDat rd;
-            rd.analogPin = analogPin;
-            rd.i = i;
-            rd.arr = readings;
-
-            while(timer.in(time-t, &CurrentMon::getReading, (void *)&rd) == NULL){
-                delay(1);
-                t+=1;
-                timer.tick();
-            }
+            args->arr[*(args->i)] = analogRead(args->analogPin);
+            //Serial.print("Got reading");
+            //Serial.println(*(args->i));
+            return ++*(args->i) <= (args->sampleNum);
         }
 
         bool updateIrms(){
+            Serial.println("Get Irms");
             readings = new uint16_t[sampleNum];
 
             size_t tasksRunning = timer.size();
 
-            for (size_t i = 0; i < sampleNum; i++)
-            {
-                getReadingIn(sampleTime*i, i);
-            }
+            int i = 0;
+            readingDat rd;
+            rd.analogPin = analogPin;
+            rd.i = &i;
+            rd.arr = readings;
+            rd.sampleNum = sampleNum;
+
+            timer.every(sampleTime, &CurrentMon::getReading, (void *)&rd);
             
-            while(timer.size() >= tasksRunning && !timer.empty() && timer.ticks() <= sampleTime*sampleNum){//TODO offset by Tinit
+            while(i <= sampleNum){//TODO offset by Tinit
                 delay(1);
                 timer.tick();
+                //.Serial.println("Blocking at end");
             }
 
             for (size_t i = 0; i < sampleNum; i++)
@@ -98,8 +92,9 @@ class CurrentMon{
 
             Irms /= sampleNum;
             Irms = pow(Irms, .5);
-            Irms = (Irms-offset)*scale;
+            Irms = (Irms+offset)*scale;
 
+            Serial.println("Finished Irms Calc");
             delete(readings);
         }
 
