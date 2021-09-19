@@ -11,7 +11,7 @@
 #include<HX711.h> //Load cell library
 
 //SERIAL COMMUNICATION VARIABLES
-int sref=1;
+int sref=-1;
 
 #define dataPin 21
 #define clockPin 53
@@ -23,7 +23,7 @@ struct dWrite{
 
 Timer<> T;
 HX711 forceSensor;
-CurrentMon ISense(0, -0.4275002956, 38.2, 250, 1, T);
+CurrentMon ISense(0, 0, 0, 400, 1, T);
 
 #define UPPER_LIMIT 8.9 //If the current goes above this stop everything
 
@@ -74,6 +74,8 @@ const static void (*funcMap[])() = {  &drillDown,   //Command 0 Turns Drill on a
 
 void setup() {
 
+    Serial.begin(115200);
+
     //initialize stepper motors
     pinMode(stepPin,OUTPUT);
     pinMode(dirPin,OUTPUT);
@@ -88,6 +90,7 @@ void setup() {
     pinMode(DRILL,OUTPUT);
     pinMode(PUMP,OUTPUT);
     pinMode(PROBE,OUTPUT);
+    pinMode(LED_BUILTIN, OUTPUT);
     /* pinMode(VALVE1,OUTPUT);
     pinMode(VALVE2,OUTPUT);
     pinMode(VALVE3,OUTPUT); */
@@ -98,10 +101,9 @@ void setup() {
     //This code initializes force sensor
     forceSensor.begin(dataPin, clockPin);
     forceSensor.set_scale(420.0983); // loadcell factor 5 KG
-    forceSensor.tare(); //zeroes load cell
+    //forceSensor.tare(); //zeroes load cell
 
-    Serial.begin(9600);
-
+    Serial.println("leaving setup");
 }//end setup
 
 void loop()
@@ -113,10 +115,12 @@ void loop()
 } 
 
 void updateState(){
-
+    Serial.println("Updating State");
     if(!Serial){
       stopAll();//If the computer is disconeted STOP EVERYTHING
+      digitalWrite(LED_BUILTIN, HIGH);
     }else{
+      digitalWrite(LED_BUILTIN, LOW);
       if(Serial.available()){//If a new state is being commanded from matlab
 
         int srefTemp = Serial.parseInt();
@@ -125,7 +129,7 @@ void updateState(){
 
           sref = srefTemp; //Update the real sref
           stopAll(); // if the state changed go back to the safe state this makes it easy to go to any other state
-
+          Serial.println("New State");
         }
       }
     }
@@ -135,10 +139,13 @@ void updateState(){
         T.tick();//Wait for the last task to finish before starting the next one
         if(i > 1000){
           stopAll();//If we're waiting more than a full second for a task to complete turn everything off
+          if(!(i%100)){
+            Serial.print("Waiting for tasks for a long time");
+          }
         }
     }
 
-    if(sref < 12 && sref > 0){
+    if(sref <= 12 && sref >= 0){
       funcMap[sref](); //Call the function according to the state we're in based on the map at the top of the code
     }else{
       stopAll();//If the state is invalid turn everything off This shouldn't be nessary it should happen on the state change but it's here for redundancy
@@ -146,36 +153,43 @@ void updateState(){
 }
 
 void drillDown(){
+  Serial.println("Drill Down");
+  if(distance%200 >= 150 && forceSensor.is_ready()){
+    printDigitalCore();
+  }
   drillOn();
   goDown();
 }
 
 void heaterDown(){
+  Serial.println("Heater Down");
   heaterOn();
   goDown();
 }
 
 void drillUp(){
+  Serial.println("Drill Up");
   drillOn();
   goUp();
 }
 
 void heaterUp(){
+  Serial.println("Heater Up");
   heaterOn();
   goUp();
 }
 
 void toolChangeCW(){
-  digitalWrite(dirPin2, HIGH);//Low for down
-  stepMotor(stepPin2);
+  Serial.println("Toolchange CW");
 }
 
 void toolChangeCC(){
-  digitalWrite(dirPin2, LOW);//Low for down
-  stepMotor(stepPin2);
+  Serial.println("Toolchange CC");
 }
 
 void checkIrms() {
+    Serial.print("Checking Irms :");
+    Serial.println(ISense.getLastIrms());
     while(ISense.getLastIrms() > UPPER_LIMIT) {
       stopAll();
       ISense.updateIrms();
@@ -185,21 +199,18 @@ void checkIrms() {
 }
 
 void stopAll(){
-    digitalWrite(DRILL,HIGH);//all relays should be HIGH to be off
-    digitalWrite(PUMP,HIGH);
-    digitalWrite(PROBE,HIGH);
+    Serial.println("Entering Stop");
 }
 
 void goDown(void){
 
   //continue until signal change or limit switch
+  Serial.println("Going Down");
+
   if(!digitalRead(botLimit)){
-    stepDrillDown();
-    if(int(distance)%200 >= 275 && forceSensor.is_ready()){
-      printDigitalCore();
-    }
+    //stepDrillDown();
   }else{
-    //TODO set dist to lower val
+    Serial.println("Hit Lower limit");
   }
 }
 
@@ -238,23 +249,24 @@ void stepDrillUp(){
 
 void goUp(void)
 {
+  Serial.println("Going Up");
   if(!digitalRead(topLimit)){ //reverses unless stopped or limit switch is hit
-    stepDrillUp();
+    //stepDrillUp();
   }else{
-    distance = 0;
+    Serial.println("Hit Upper limit");
   }
 }
 
 void heaterOn(void){
-  digitalWrite(PROBE,LOW); 
+  Serial.println("Heater On");
 }
 
 void pumpOn(void){
-  digitalWrite(PUMP, LOW);
+  Serial.println("Pump On");
 }
 
 void drillOn(void){
-  digitalWrite(DRILL,LOW);
+  Serial.println("drill On");
 }
 
 void valveOpen(int valvePin){
@@ -263,23 +275,13 @@ void valveOpen(int valvePin){
 
 void printDigitalCore(void)
 {
-    if(forceSensor.is_ready()){
-        auto Irms = ISense.getLastIrms();// Calculate Irms only
-        auto force = forceSensor.get_units(1); //averages 1 readings for output
-        Serial.print(distance);
-        Serial.print(" ");
-        Serial.print(force);
-        Serial.print(" ");
-        Serial.println(Irms);
-    }
+    Serial.println("Print DigitalCore");
 }
 
 void toolRealease(){
-    digitalWrite(act1,LOW);
-    digitalWrite(act2, HIGH);
+  Serial.println("Tool Realease");
 }
 
 void toolGrab(){
-    digitalWrite(act1,HIGH);
-    digitalWrite(act2,LOW);
+  Serial.println("Tool Grab");
 }
