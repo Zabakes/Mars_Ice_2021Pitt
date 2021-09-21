@@ -13,50 +13,51 @@
 //SERIAL COMMUNICATION VARIABLES
 int sref=-1;
 
-#define dataPin 21
-#define clockPin 53
+#define loadCellData 21
+#define loadCellClk 53
 
 struct dWrite{
+    int port;
     int pin;
     int val;
 };
 
 Timer<> T;
 HX711 forceSensor;
-CurrentMon ISense(0, -0.4275002956, 38.2, 250, 1, T);
+CurrentMon ISense(0, -22.6, 1, 250, 1, T);
 
 #define UPPER_LIMIT 8.9 //If the current goes above this stop everything
 
-#define MOTOR_STEPS 800 
+#define MOTOR_STEPS 800
 #define RPM 120 
 
 //calculation for length of delay used to control vertical speed (microseconds)
-unsigned long stepDelay = 60.0/(long(RPM)*long(MOTOR_STEPS)*2)*1000000; 
+unsigned long stepDelay = 50; 
 int distance = 0; //step count
 
 // All the wires needed for full functionality; motor 1 (vertical) and motor2 (tool change)
-#define stepPin 2
-#define dirPin 3
-#define stepPin2 4
-#define dirPin2 5
+#define vertStepPin 2
+#define vertDirPin 48
+#define toolChangeStepPin 46
+#define toolChangeDirPin 44
 //limit switch digital pins
-#define topLimit 14
-#define botLimit 15
+#define topLimit 24
+#define botLimit 26
 //actuator pins
-#define act1 34
+#define act1 38
 #define act2 36
 // 2-wire basic config, microstepping is hardwired on the driver
-//BasicStepperDriver stepper2(MOTOR_STEPS2, dirPin2, stepPin2);
+//BasicStepperDriver stepper2(MOTOR_STEPS2, toolChangeDirPin, toolChangeStepPin);
 
 //RELAY DEFINITIONS
-#define DRILL  8
-#define PROBE  9
-#define PUMP  10
+#define DRILL  13
+#define PROBE  12
+#define PUMP  11
 
-/* #define VALVE1  11
-#define VALVE2  12
-#define VALVE3  13
-#define VALVE4   */
+#define VALVE1  10
+#define VALVE2  9
+#define VALVE3  8
+#define VALVE4  3
 
 const static void (*funcMap[])() = {  &drillDown,   //Command 0 Turns Drill on and goes down
                                       &drillUp,     //Command 1 Turns Drill on and goes up
@@ -77,8 +78,8 @@ void setup() {
     Serial.begin(115200);
 
     //initialize stepper motors
-    pinMode(stepPin,OUTPUT);
-    pinMode(dirPin,OUTPUT);
+    pinMode(vertStepPin,OUTPUT);
+    pinMode(vertDirPin,OUTPUT);
     pinMode(act1,OUTPUT);
     pinMode(act2,OUTPUT);
 
@@ -90,17 +91,17 @@ void setup() {
     pinMode(DRILL,OUTPUT);
     pinMode(PUMP,OUTPUT);
     pinMode(PROBE,OUTPUT);
-    /* pinMode(VALVE1,OUTPUT);
+    pinMode(VALVE1,OUTPUT);
     pinMode(VALVE2,OUTPUT);
-    pinMode(VALVE3,OUTPUT); */
+    pinMode(VALVE3,OUTPUT);
     
     //Turns everything off
     stopAll();
 
     //This code initializes force sensor
-    forceSensor.begin(dataPin, clockPin);
+    forceSensor.begin(loadCellData, loadCellClk);
     forceSensor.set_scale(420.0983); // loadcell factor 5 KG
-    forceSensor.tare(); //zeroes load cell
+    //forceSensor.tare(); //zeroes load cell
 
 }//end setup
 
@@ -113,14 +114,14 @@ void loop()
 } 
 
 void updateState(){
-
     if(!Serial){
       stopAll();//If the computer is disconeted STOP EVERYTHING
-      digitalWrite(LED_BUILTIN, HIGH);
+      //digitalWrite(LED_BUILTIN, HIGH);
     }else{
-      if(Serial.available()){//If a new state is being commanded from matlab
-        digitalWrite(LED_BUILTIN, LOW);
+      if(Serial.available() > 0){//If a new state is being commanded from matlab
+        //digitalWrite(LED_BUILTIN, LOW);
         int srefTemp = Serial.parseInt();
+        Serial.read();
 
         if(sref != srefTemp){//If the state is new
 
@@ -134,12 +135,13 @@ void updateState(){
     for(size_t i; !T.empty(); i++){
         delay(1);
         T.tick();//Wait for the last task to finish before starting the next one
-        if(i > 1000){
+        if(i > 10000){
           stopAll();//If we're waiting more than a full second for a task to complete turn everything off
         }
     }
 
     if(sref <= 12 && sref >= 0){
+      //Serial.println(sref);
       funcMap[sref](); //Call the function according to the state we're in based on the map at the top of the code
     }else{
       stopAll();//If the state is invalid turn everything off This shouldn't be nessary it should happen on the state change but it's here for redundancy
@@ -170,20 +172,21 @@ void heaterUp(){
 }
 
 void toolChangeCW(){
-  digitalWrite(dirPin2, HIGH);//Low for down
-  stepMotor(stepPin2);
+  digitalWrite(toolChangeDirPin, HIGH);//Low for down
+  stepMotor(toolChangeStepPin);
 }
 
 void toolChangeCC(){
-  digitalWrite(dirPin2, LOW);//Low for down
-  stepMotor(stepPin2);
+  digitalWrite(toolChangeDirPin, LOW);//Low for down
+  stepMotor(toolChangeStepPin);
 }
 
 void checkIrms() {
     while(ISense.getLastIrms() > UPPER_LIMIT) {
       stopAll();
       ISense.updateIrms();
-      Serial.println("CURRENT EXCEEDED UPPED LIMIT");
+      Serial.print("CURRENT EXCEEDED UPPED LIMIT :");
+      Serial.println(ISense.getLastIrms());
       sref = -1;
     }
 }
@@ -192,6 +195,9 @@ void stopAll(){
     digitalWrite(DRILL,HIGH);//all relays should be HIGH to be off
     digitalWrite(PUMP,HIGH);
     digitalWrite(PROBE,HIGH);
+    digitalWrite(VALVE1, HIGH);
+    digitalWrite(VALVE2, HIGH);
+    digitalWrite(VALVE3, HIGH);
 }
 
 void goDown(void){
@@ -206,33 +212,51 @@ void goDown(void){
 
 void stepMotor(int motorPin){
   
-  dWrite dat = {
-    motorPin,
-    LOW
-  };
+  dWrite *dat = malloc(sizeof(dWrite));
 
-  digitalWrite(stepPin,HIGH);
-  T.in(stepDelay, &digitalWrite, (void*)&dat);
+  dat->pin = motorPin;
+  dat->val = LOW;
 
+	uint8_t bit = digitalPinToBitMask(motorPin);
+	uint8_t port = digitalPinToPort(motorPin);
+	volatile uint8_t *out;
+
+	out = portOutputRegister(port);
+
+	*out |= bit;
+
+  T.in(stepDelay, &stepDown, (void*)dat);
+  
 }
 
-bool digitalWrite(void *dat){
+bool stepDown(void *dat){
+
   dWrite args = *((dWrite *)dat);
-  digitalWrite(args.pin, args.val);
+
+  uint8_t bit = digitalPinToBitMask(args.pin);
+	uint8_t port = digitalPinToPort(args.pin);
+	volatile uint8_t *out;
+
+	out = portOutputRegister(port);
+
+	*out &= ~bit;
+	
+  T.in(stepDelay*5, [](dWrite * d){free(d);}, dat);//This saves the dat struct and makes sure the code blocks until both steps are complete before moving on to the next state
+
   return false;
 }
 
 void stepDrillDown(){
 
-  digitalWrite(dirPin, HIGH);//High for descent
-  stepMotor(stepPin);
+  digitalWrite(vertDirPin, HIGH);//High for descent
+  stepMotor(vertStepPin);
   distance++;
 }
 
 void stepDrillUp(){
 
-  digitalWrite(dirPin, LOW);//Low for down
-  stepMotor(stepPin);
+  digitalWrite(vertDirPin, LOW);//Low for down
+  stepMotor(vertStepPin);
   distance--;
 
 }

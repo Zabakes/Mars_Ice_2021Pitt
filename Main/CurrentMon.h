@@ -65,7 +65,7 @@ class CurrentMon{
         }
 
         bool updateIrms(){
-            Serial.println("Get Irms");
+            //Serial.println("Get Irms");
             readings = new uint16_t[sampleNum];
 
             size_t tasksRunning = timer.size();
@@ -94,7 +94,7 @@ class CurrentMon{
             Irms = pow(Irms, .5);
             Irms = (Irms+offset)*scale;
 
-            Serial.println("Finished Irms Calc");
+            //Serial.println("Finished Irms Calc");
             delete(readings);
         }
 
