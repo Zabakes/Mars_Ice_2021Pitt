@@ -9,6 +9,7 @@ class CurrentMon{
             int * i;
             uint16_t * arr;
             int sampleNum;
+            double * Irms;
         };
 
         int analogPin;
@@ -21,13 +22,13 @@ class CurrentMon{
         int sampleNum;
         int sampleTime;
 
-        Timer<> timer;
+        Timer<10, micros> timer;
 
         bool localTimer = false;
 
     public:
 
-        CurrentMon(double analogPin,double offset, double scale, int sampleNum, int sampleTime, Timer<> t){
+        CurrentMon(double analogPin,double offset, double scale, int sampleNum, int sampleTime, Timer<10, micros> t){
             this->analogPin = analogPin ;
             this->offset = offset;
             this->scale  = scale ;
@@ -35,9 +36,11 @@ class CurrentMon{
             this->sampleNum = sampleNum;
 
             this->timer = t;
+
         }
 
-        CurrentMon(double offset, double scale):CurrentMon(0, offset, scale, 250, 2, *(new Timer<>)){
+        CurrentMon(double offset, double scale):CurrentMon(0, offset, scale, 250, 2, *(new Timer<10, micros>)){
+            Timer<10, micros> t;
             localTimer = true;
         }
 
@@ -50,22 +53,19 @@ class CurrentMon{
 
         float getNewIrms(){
             updateIrms();
-            return Irms;
+            return getLastIrms();
         }
 
         float getLastIrms(){
-            return Irms;
+            return (Irms+offset)*scale;;
         }
 
         bool static getReading(readingDat *args){
             args->arr[*(args->i)] = analogRead(args->analogPin);
-            //Serial.print("Got reading");
-            //Serial.println(*(args->i));
             return ++*(args->i) <= (args->sampleNum);
         }
 
         bool updateIrms(){
-            //Serial.println("Get Irms");
             readings = new uint16_t[sampleNum];
 
             size_t tasksRunning = timer.size();
@@ -76,26 +76,25 @@ class CurrentMon{
             rd.i = &i;
             rd.arr = readings;
             rd.sampleNum = sampleNum;
+            rd.Irms = &Irms;
 
             timer.every(sampleTime, &CurrentMon::getReading, (void *)&rd);
             
-            while(i <= sampleNum){//TODO offset by Tinit
-                delay(1);
-                timer.tick();
-                //.Serial.println("Blocking at end");
-            }
+            timer.in(sampleTime*sampleNum+10, &CurrentMon::calcReading, (void *)&rd);
+            
+        }
 
-            for (size_t i = 0; i < sampleNum; i++)
+        bool static calcReading(readingDat* dat){
+
+            for (size_t i = 0; i < dat->sampleNum; i++)
             {
-                Irms += readings[i];
+                *(dat->Irms) += dat->arr[i];
             }
 
-            Irms /= sampleNum;
-            Irms = pow(Irms, .5);
-            Irms = (Irms+offset)*scale;
+            *(dat->Irms) /= dat->sampleNum;
+            *(dat->Irms) = pow(*(dat->Irms), .5);
 
-            //Serial.println("Finished Irms Calc");
-            delete(readings);
+            delete(dat->arr);
         }
 
 

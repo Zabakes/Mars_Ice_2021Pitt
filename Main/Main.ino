@@ -22,17 +22,17 @@ struct dWrite{
     int val;
 };
 
-Timer<> T;
+Timer<10, micros> T;
 HX711 forceSensor;
 CurrentMon ISense(0, -22.6, 1, 250, 1, T);
 
 #define UPPER_LIMIT 8.9 //If the current goes above this stop everything
 
 #define MOTOR_STEPS 800
-#define RPM 120 
+#define RPM 90 
 
-//calculation for length of delay used to control vertical speed (microseconds)
-unsigned long stepDelay = 50; 
+//calculation for length of delay used to control vertical speed (miliseconds)
+unsigned long stepDelay = 4166;
 int distance = 0; //step count
 
 // All the wires needed for full functionality; motor 1 (vertical) and motor2 (tool change)
@@ -82,6 +82,8 @@ void setup() {
     pinMode(vertDirPin,OUTPUT);
     pinMode(act1,OUTPUT);
     pinMode(act2,OUTPUT);
+    pinMode(toolChangeStepPin,OUTPUT);
+    pinMode(toolChangeDirPin,OUTPUT);
 
     //initializes limit switches
     pinMode(topLimit,INPUT);
@@ -116,12 +118,10 @@ void loop()
 void updateState(){
     if(!Serial){
       stopAll();//If the computer is disconeted STOP EVERYTHING
-      //digitalWrite(LED_BUILTIN, HIGH);
     }else{
       if(Serial.available() > 0){//If a new state is being commanded from matlab
-        //digitalWrite(LED_BUILTIN, LOW);
         int srefTemp = Serial.parseInt();
-        Serial.read();
+        Serial.read();//CLEAR THE BUFFER 
 
         if(sref != srefTemp){//If the state is new
 
@@ -133,15 +133,14 @@ void updateState(){
     }
 
     for(size_t i; !T.empty(); i++){
-        delay(1);
         T.tick();//Wait for the last task to finish before starting the next one
-        if(i > 10000){
+        delayMicroseconds(1);
+        if(i > 10000000){
           stopAll();//If we're waiting more than a full second for a task to complete turn everything off
         }
     }
 
     if(sref <= 12 && sref >= 0){
-      //Serial.println(sref);
       funcMap[sref](); //Call the function according to the state we're in based on the map at the top of the code
     }else{
       stopAll();//If the state is invalid turn everything off This shouldn't be nessary it should happen on the state change but it's here for redundancy
@@ -217,15 +216,10 @@ void stepMotor(int motorPin){
   dat->pin = motorPin;
   dat->val = LOW;
 
-	uint8_t bit = digitalPinToBitMask(motorPin);
-	uint8_t port = digitalPinToPort(motorPin);
-	volatile uint8_t *out;
-
-	out = portOutputRegister(port);
-
-	*out |= bit;
+  digitalWrite(motorPin, HIGH);
 
   T.in(stepDelay, &stepDown, (void*)dat);
+  T.in(stepDelay*2, [](dWrite * d){free(d);}, dat);
   
 }
 
@@ -233,16 +227,7 @@ bool stepDown(void *dat){
 
   dWrite args = *((dWrite *)dat);
 
-  uint8_t bit = digitalPinToBitMask(args.pin);
-	uint8_t port = digitalPinToPort(args.pin);
-	volatile uint8_t *out;
-
-	out = portOutputRegister(port);
-
-	*out &= ~bit;
-	
-  T.in(stepDelay*5, [](dWrite * d){free(d);}, dat);//This saves the dat struct and makes sure the code blocks until both steps are complete before moving on to the next state
-
+  digitalWrite(args.pin, args.val);
   return false;
 }
 
