@@ -103,7 +103,7 @@ void setup() {
     //This code initializes force sensor
     forceSensor.begin(loadCellData, loadCellClk);
     forceSensor.set_scale(420.0983); // loadcell factor 5 KG
-    //forceSensor.tare(); //zeroes load cell
+    forceSensor.tare(); //zeroes load cell
 
 }//end setup
 
@@ -148,7 +148,7 @@ void updateState(){
 }
 
 void drillDown(){
-  if(distance%200 >= 150 && forceSensor.is_ready()){
+  if(forceSensor.is_ready()){
     printDigitalCore();
   }
   drillOn();
@@ -274,13 +274,14 @@ void valveOpen(int valvePin){
 void printDigitalCore(void)
 {
     if(forceSensor.is_ready()){
-        auto Irms = ISense.getLastIrms();// Calculate Irms only
-        auto force = forceSensor.get_units(1); //averages 1 readings for output
         Serial.print(distance);
         Serial.print(" ");
-        Serial.print(force);
+        Serial.print(forceSensor.get_units(1));
         Serial.print(" ");
-        Serial.println(Irms);
+        Serial.print(ISense.getLastIrms());
+        Serial.print(" ");
+        Serial.println(millis());
+
     }
 }
 
