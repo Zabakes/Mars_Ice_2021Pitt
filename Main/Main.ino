@@ -11,7 +11,7 @@
 #include<HX711.h> //Load cell library
 
 //SERIAL COMMUNICATION VARIABLES
-int sref=-1;
+int sref = -1;
 
 #define loadCellData 21
 #define loadCellClk 53
@@ -24,7 +24,7 @@ struct dWrite{
 
 Timer<10, micros> T;
 HX711 forceSensor;
-CurrentMon ISense(0, -22.6, 1, 250, 1, T);
+CurrentMon ISense(0, 0, 1, 250, 1, T);
 
 #define UPPER_LIMIT 8.9 //If the current goes above this stop everything
 
@@ -59,19 +59,23 @@ int distance = 0; //step count
 #define VALVE3  8
 #define VALVE4  3
 
-const static void (*funcMap[])() = {  &drillDown,   //Command 0 Turns Drill on and goes down
-                                      &drillUp,     //Command 1 Turns Drill on and goes up
-                                      &heaterOn,    //Command 2 Turns Heater on and waits
-                                      &drillOn,     //Command 3 Turns the drill on and waits
-                                      &pumpOn,      //Command 4 Turns the pump on and waits
-                                      &toolChangeCW,//Command 5 Turns the tool changer Clockwise
-                                      &toolChangeCC,//Command 6 Turns the tool changer CounterClockwise
-                                      &toolRealease,//Command 7 Pulls the node cone up and releases the tool
-                                      &toolGrab,    //Command 8 Puts the nose cone down to grab tool
-                                      &heaterDown,  //Command 9 Turns the heater on and moves down
-                                      &heaterUp,    //Command 10 Turns the heater on and moves up
-                                      &goUp,        //Command 11 Move up with nothing on
-                                      &goDown};     //Command 12 Move down with nothing on
+const static void (*funcMap[])() = {  &drillDown,     //Command 1 Turns Drill on and goes down
+                                      &drillUp,       //Command 2 Turns Drill on and goes up
+                                      &heaterOn,      //Command 3 Turns Heater on and waits
+                                      &drillOn,       //Command 4 Turns the drill on and waits
+                                      &pumpOn,        //Command 5 Turns the pump on and waits
+                                      &toolChangeCW,  //Command 6 Turns the tool changer Clockwise
+                                      &toolChangeCC,  //Command 7 Turns the tool changer CounterClockwise
+                                      &toolRealease,  //Command 8 Pulls the node cone up and releases the tool
+                                      &toolGrab,      //Command 9 Puts the nose cone down to grab tool
+                                      &heaterDown,    //Command 10 Turns the heater on and moves down
+                                      &heaterUp,      //Command 11 Turns the heater on and moves up
+                                      &goUp,          //Command 12 Move up with nothing on
+                                      &goDown,        //Command 13
+                                      &compresserDown //Command 14
+                                      &loadCellCal,   //Command 15
+                                      &ampMetterCal,  //16
+                                      [](void*){forceSensor.tare();}};//Command 17 Move down with nothing on    
 
 void setup() {
 
@@ -102,7 +106,7 @@ void setup() {
 
     //This code initializes force sensor
     forceSensor.begin(loadCellData, loadCellClk);
-    forceSensor.set_scale(420.0983); // loadcell factor 5 KG
+    forceSensor.set_scale(4540.09554733474); // loadcell factor 5 KG
     forceSensor.tare(); //zeroes load cell
 
 }//end setup
@@ -140,8 +144,8 @@ void updateState(){
         }
     }
 
-    if(sref <= 12 && sref >= 0){
-      funcMap[sref](); //Call the function according to the state we're in based on the map at the top of the code
+    if(sref <= 16 && sref >= 1){
+      funcMap[sref-1](); //Call the function according to the state we're in based on the map at the top of the code
     }else{
       stopAll();//If the state is invalid turn everything off This shouldn't be nessary it should happen on the state change but it's here for redundancy
     }
@@ -152,6 +156,11 @@ void drillDown(){
     printDigitalCore();
   }
   drillOn();
+  goDown();
+}
+
+void compresserDown(){
+  pumpOn();
   goDown();
 }
 
@@ -178,6 +187,14 @@ void toolChangeCW(){
 void toolChangeCC(){
   digitalWrite(toolChangeDirPin, LOW);//Low for down
   stepMotor(toolChangeStepPin);
+}
+
+void loadCellCal(){
+  Serial.println(forceSensor.get_units(5));
+}
+
+void ampMetterCal(){
+  Serial.println(ISense.getLastIrms());
 }
 
 void checkIrms() {
